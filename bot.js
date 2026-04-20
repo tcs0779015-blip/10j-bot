@@ -8,6 +8,17 @@ const fs = require('fs');
 const path = require('path');
 const FormData = require('form-data');
 const { generateNotesPDF } = require('./pdfGenerator');
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('10J Bot is running! 🚀');
+});
+
+app.listen(port, () => {
+  console.log(`Web server listening on port ${port}`);
+});
 
 const client = new Client({
   intents: [
