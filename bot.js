@@ -18,10 +18,9 @@ const client = new Client({
 
 const aai = new AssemblyAI({ apiKey: process.env.ASSEMBLYAI_API_KEY });
 
-// Session memory
 let sessionData = { teachers: {}, proxies: new Set() };
 
-[span_4](start_span)[span_5](start_span)// Exact Timetable from PDF (All times IST)[span_4](end_span)[span_5](end_span)
+// Exact Timetable from PDF (All times IST)
 const TIMETABLE = {
   1: [ // Monday
     { name: 'Zero Period', start: '09:25', end: '09:40' },
@@ -62,8 +61,8 @@ const TIMETABLE = {
     { name: 'Biology', start: '12:55', end: '13:35' },
     { name: 'English', start: '13:35', end: '14:15' },
     { name: 'HPE', start: '14:20', end: '15:00' }
-  ],
-  [span_6](start_span)5: [ // Friday[span_6](end_span)
+  ], // <--- Comma was missing here in your previous build!
+  5: [ // Friday
     { name: 'English', start: '09:30', end: '10:00' },
     { name: 'Physics', start: '10:00', end: '10:30' },
     { name: 'Math', start: '10:30', end: '11:00' },
@@ -136,13 +135,16 @@ client.on(Events.MessageCreate, async (message) => {
     const day = istNow.getDay();
     const daySchedule = TIMETABLE[day];
     if (!daySchedule) return message.reply("No classes today!");
-    [span_7](start_span)const embed = new EmbedBuilder().setColor(0x00FF00).setTitle(`📅 10J Timetable (IST)`[span_7](end_span)).setDescription(daySchedule.map(p => `**${p.start} - ${p.end}**: ${p.name}`).join('\n'));
+    const embed = new EmbedBuilder()
+      .setColor(0x00FF00)
+      .setTitle(`📅 10J Timetable (IST)`)
+      .setDescription(daySchedule.map(p => `**${p.start} - ${p.end}**: ${p.name}`).join('\n'));
     message.reply({ embeds: [embed] });
   }
 
   if (command === '/period') {
     const current = getISTNow();
-    if (!current) return message.reply("No active class.");
+    if (!current) return message.reply("No active class right now.");
     message.reply(`📍 **Period:** ${current.name}\n⏰ **IST:** ${current.start} - ${current.end}`);
   }
 
