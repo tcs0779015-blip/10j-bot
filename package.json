@@ -1,13 +1,19 @@
 {
-  "name": "10j-class-bot",
-  "version": "2.1.0",
+  "name": "class-10j-bot",
+  "version": "3.0.0",
+  "description": "Transcription and AI Note-taking Bot for Class 10J",
   "main": "bot.js",
-  "scripts": { "start": "node bot.js" },
+  "scripts": {
+    "start": "node bot.js"
+  },
   "dependencies": {
-    "discord.js": "^14.14.1",
+    "@google/generative-ai": "^0.1.0",
     "assemblyai": "^4.3.3",
     "axios": "^1.6.8",
+    "discord.js": "^14.14.1",
     "dotenv": "^16.4.5"
   },
-  "engines": { "node": ">=18.0.0" }
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
