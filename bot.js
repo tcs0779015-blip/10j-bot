@@ -17,12 +17,14 @@ const client = new Client({
   ]
 });
 
-// Initialize AssemblyAI
-const aai = new AssemblyAI({ 
-  apiKey: process.env.ASSEMBLYAI_API_KEY 
-});
+const aai = new AssemblyAI({ apiKey: process.env.ASSEMBLYAI_API_KEY });
 
-// Timetable synced to Dubai School Hours
+// This object tracks teachers and proxies for the current session
+let sessionData = {
+  teachers: {}, // Format: { "Monday-IT": "Mr. Smith" }
+  proxies: new Set() // Format: "Monday-IT"
+};
+
 const TIMETABLE = {
   1: [ // Monday
     { name: 'Zero Period',  start: '09:25', end: '09:40' },
@@ -33,105 +35,126 @@ const TIMETABLE = {
     { name: 'English',      start: '12:55', end: '13:35' },
     { name: 'Islamic/M.Sc', start: '13:35', end: '14:15' }
   ],
-  2: [ // Tuesday (Add your Tuesday subjects here)
+  2: [ // Tuesday
     { name: 'Math',         start: '09:25', end: '10:05' },
     { name: 'Physics',      start: '10:10', end: '10:50' },
     { name: 'Chemistry',    start: '11:00', end: '11:40' }
-  ],
-  3: [ // Wednesday (Add subjects here)
-    { name: 'Wednesday Class', start: '09:25', end: '10:05' }
-  ],
-  4: [ // Thursday (Add subjects here)
-    { name: 'Thursday Class', start: '09:25', end: '10:05' }
   ]
+  // Add 3, 4, 5 here...
 };
 
-// Helper: Always gets current period based on Dubai Time
-function getCurrentPeriod() {
-  const dubaiTime = new Date().toLocaleString("en-US", {timeZone: "Asia/Dubai"});
-  const now = new Date(dubaiTime);
-  
-  const hours = now.getHours().toString().padStart(2, '0');
-  const minutes = now.getMinutes().toString().padStart(2, '0');
-  const currentTime = `${hours}:${minutes}`;
-  const day = now.getDay();
-  
-  if (!TIMETABLE[day]) return null;
-  return TIMETABLE[day].find(p => currentTime >= p.start && currentTime <= p.end) || null;
+function getDubaiNow() {
+  return new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Dubai"}));
 }
 
-client.once(Events.ClientReady, () => {
-  console.log(`✅ 10J Bot is live. System Time: ${new Date().toString()}`);
-});
+function getCurrentPeriod() {
+  const now = getDubaiNow();
+  const time = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+  const day = now.getDay();
+  if (!TIMETABLE[day]) return null;
+  const period = TIMETABLE[day].find(p => time >= p.start && time <= p.end);
+  if (period) return { ...period, day };
+  return null;
+}
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
+  const args = message.content.split(' ');
+  const command = args[0].toLowerCase();
 
+  // 1. AUDIO HANDLING (AssemblyAI + PDF)
   const audio = message.attachments.find(a => /\.(mp3|wav|m4a)$/i.test(a.name));
-  
   if (audio) {
     const current = getCurrentPeriod();
-    const subjectName = current ? current.name : "Extra-Curricular / General";
+    const periodId = current ? `${current.day}-${current.name}` : null;
+    const teacher = sessionData.teachers[periodId] || "Unknown Teacher";
+    const isProxy = sessionData.proxies.has(periodId) ? " (PROXY)" : "";
     
-    const statusMsg = await message.reply(`🎙️ **Processing ${subjectName}...**\nTranscribing with AssemblyAI...`);
+    const subjectLabel = current ? `${current.name} with ${teacher}${isProxy}` : "General Notes";
+    const statusMsg = await message.reply(`🎙️ **Processing ${subjectLabel}...**`);
 
     try {
       const transcript = await aai.transcripts.transcribe({ audio: audio.url });
-      await statusMsg.edit("📝 **Transcription complete!**\nGenerating PDF...");
-
       const pdfPath = path.join(__dirname, `Notes_${Date.now()}.pdf`);
       
-      // PDF Timestamps are generated in IST for you
       await generateNotesPDF({
-        subject: subjectName,
+        subject: subjectLabel,
         time: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
         date: new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
         notesMarkdown: transcript.text || "No speech detected.",
         pdfPath
       });
 
-      const file = new AttachmentBuilder(pdfPath);
-      await message.reply({ 
-        content: `✅ **Notes for ${subjectName}**\nGenerated at: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} (IST)`, 
-        files: [file] 
-      });
-
-      if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+      await message.reply({ content: `✅ **Notes for ${subjectLabel}**`, files: [new AttachmentBuilder(pdfPath)] });
+      fs.unlinkSync(pdfPath);
       await statusMsg.delete();
-
     } catch (err) {
-      console.error("Transcription Error:", err);
-      await statusMsg.edit("❌ **Error processing audio.** Make sure AssemblyAI API key is valid.");
+      await statusMsg.edit("❌ Error processing transcription.");
     }
   }
 
-  if (message.content === '/timetable') {
-    const dubaiTime = new Date().toLocaleString("en-US", {timeZone: "Asia/Dubai"});
-    const now = new Date(dubaiTime);
-    const day = now.getDay();
-    const todaySchedule = TIMETABLE[day];
+  // 2. TIMETABLE COMMANDS
+  if (command === '/timetable' || command === '/timetableist') {
+    const useIST = command.includes('ist');
+    const dubaiNow = getDubaiNow();
+    const day = dubaiNow.getDay();
+    const schedule = TIMETABLE[day];
 
-    if (!todaySchedule) return message.reply("No classes scheduled for today in Dubai!");
+    if (!schedule) return message.reply("No classes today!");
 
     const embed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setTitle(`📅 Today's Schedule (Dubai School Time)`)
-      .setDescription(todaySchedule.map(p => `**${p.start} - ${p.end}**: ${p.name}`).join('\n'))
-      .setFooter({ text: 'Times are shown in Dubai Local Time (GST)' });
+      .setTitle(`📅 10J Schedule (${useIST ? 'IST' : 'GST'})`)
+      .setDescription(schedule.map(p => {
+          let timeStr = `${p.start} - ${p.end}`;
+          if (useIST) {
+              // Simple math: GST + 1.5 hours = IST
+              const [h, m] = p.start.split(':').map(Number);
+              let totalM = h * 60 + m + 90;
+              let istH = Math.floor(totalM / 60) % 24;
+              let istM = totalM % 60;
+              timeStr = `${istH.toString().padStart(2, '0')}:${istM.toString().padStart(2, '0')} IST`;
+          }
+          const periodId = `${day}-${p.name}`;
+          const tea = sessionData.teachers[periodId] ? ` | 🧑‍🏫 ${sessionData.teachers[periodId]}` : "";
+          const pro = sessionData.proxies.has(periodId) ? " | ⚠️ PROXY" : "";
+          return `**${timeStr}**: ${p.name}${tea}${pro}`;
+      }).join('\n'));
 
     message.reply({ embeds: [embed] });
   }
+
+  // 3. PERIOD TRACKING COMMANDS
+  if (command === '/period') {
+    const current = getCurrentPeriod();
+    if (!current) return message.reply("No active period right now.");
+    const periodId = `${current.day}-${current.name}`;
+    const teacher = sessionData.teachers[periodId] || "Not marked";
+    const proxy = sessionData.proxies.has(periodId) ? " (Proxy)" : "";
+    message.reply(`📍 **Current Period:** ${current.name}\n🧑‍🏫 **Teacher:** ${teacher}${proxy}\n⏰ **Ends at:** ${current.end} GST`);
+  }
+
+  if (command === '/teacher') {
+    const current = getCurrentPeriod();
+    if (!current) return message.reply("You can only mark a teacher during a class!");
+    const teacherName = args.slice(1).join(' ');
+    if (!teacherName) return message.reply("Usage: `/teacher [Name]`");
+    
+    sessionData.teachers[`${current.day}-${current.name}`] = teacherName;
+    message.reply(`✅ Marked **${teacherName}** for the ${current.name} period.`);
+  }
+
+  if (command === '/proxy') {
+    const current = getCurrentPeriod();
+    if (!current) return message.reply("No active period to mark as proxy.");
+    const periodId = `${current.day}-${current.name}`;
+    sessionData.proxies.add(periodId);
+    message.reply(`⚠️ The current ${current.name} period is now marked as a **PROXY**.`);
+  }
 });
 
-// --- RENDER PORT BINDING ---
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('10J Bot Status: Online\n');
-});
-
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Health check server listening on port ${PORT}`);
-});
+// Render Health Check
+const server = http.createServer((req, res) => { res.writeHead(200); res.end('Online'); });
+server.listen(process.env.PORT || 10000, '0.0.0.0');
 
 client.login(process.env.DISCORD_TOKEN);
