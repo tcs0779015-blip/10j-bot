@@ -18,10 +18,10 @@ const client = new Client({
 
 const aai = new AssemblyAI({ apiKey: process.env.ASSEMBLYAI_API_KEY });
 
-// Session memory for teacher/proxy tracking
+// Session memory
 let sessionData = { teachers: {}, proxies: new Set() };
 
-// Exact Timetable from PDF (All times IST)
+[span_4](start_span)[span_5](start_span)// Exact Timetable from PDF (All times IST)[span_4](end_span)[span_5](end_span)
 const TIMETABLE = {
   1: [ // Monday
     { name: 'Zero Period', start: '09:25', end: '09:40' },
@@ -63,7 +63,7 @@ const TIMETABLE = {
     { name: 'English', start: '13:35', end: '14:15' },
     { name: 'HPE', start: '14:20', end: '15:00' }
   ],
-  5: [ // Friday
+  [span_6](start_span)5: [ // Friday[span_6](end_span)
     { name: 'English', start: '09:30', end: '10:00' },
     { name: 'Physics', start: '10:00', end: '10:30' },
     { name: 'Math', start: '10:30', end: '11:00' },
@@ -74,13 +74,11 @@ const TIMETABLE = {
   ]
 };
 
-// Helper: Current IST time
 function getISTNow() {
   const istTime = new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"});
   const now = new Date(istTime);
   const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   const day = now.getDay();
-  
   if (!TIMETABLE[day]) return null;
   const period = TIMETABLE[day].find(p => currentTime >= p.start && currentTime <= p.end);
   return period ? { ...period, dayNum: day } : null;
@@ -91,7 +89,6 @@ client.on(Events.MessageCreate, async (message) => {
   const args = message.content.split(' ');
   const command = args[0].toLowerCase();
 
-  // AUDIO TRANSCRIPTION LOGIC
   const audio = message.attachments.find(a => /\.(mp3|wav|m4a)$/i.test(a.name));
   if (audio) {
     const current = getISTNow();
@@ -100,32 +97,25 @@ client.on(Events.MessageCreate, async (message) => {
     const proxyTag = sessionData.proxies.has(periodKey) ? " (PROXY)" : "";
     const subjectLabel = current ? `${current.name} with ${teacher}${proxyTag}` : "General Notes";
 
-    const statusMsg = await message.reply(`🎙️ **Downloading audio for ${subjectLabel}...**`);
+    const statusMsg = await message.reply(`🎙️ **Processing ${subjectLabel}...**`);
 
     try {
-      // Step 1: Securely download audio buffer
       const response = await axios.get(audio.url, { responseType: 'arraybuffer' });
       const audioBuffer = Buffer.from(response.data);
 
-      await statusMsg.edit("📝 **Transcribing with AssemblyAI...**");
-
-      // Step 2: High-accuracy transcription
       const transcript = await aai.transcripts.transcribe({ 
         audio: audioBuffer,
-        boost_param: "high" // Enhances accuracy for school terms
+        speech_model: "universal-1" 
       });
       
       if (transcript.status === 'error') throw new Error(transcript.error);
 
-      await statusMsg.edit("📝 **Generating PDF Class Notes...**");
-
-      // Step 3: PDF Creation
       const pdfPath = path.join(__dirname, `Notes_${Date.now()}.pdf`);
       await generateNotesPDF({
         subject: subjectLabel,
         time: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
         date: new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),
-        notesMarkdown: transcript.text || "Silence detected.",
+        notesMarkdown: transcript.text || "No speech detected.",
         pdfPath
       });
 
@@ -137,50 +127,41 @@ client.on(Events.MessageCreate, async (message) => {
       if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
       await statusMsg.delete();
     } catch (err) {
-      await statusMsg.edit(`❌ **Transcription Error:** \`${err.message}\``);
+      await statusMsg.edit(`❌ **Error:** \`${err.message}\``);
     }
   }
 
-  // COMMANDS
   if (command === '/timetable') {
-    const ist = getISTNow();
-    const day = ist ? ist.dayNum : new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"})).getDay();
+    const istNow = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+    const day = istNow.getDay();
     const daySchedule = TIMETABLE[day];
-
     if (!daySchedule) return message.reply("No classes today!");
-
-    const embed = new EmbedBuilder()
-      .setColor(0x00FF00)
-      .setTitle(`📅 10J Timetable (IST)`)
-      .setDescription(daySchedule.map(p => `**${p.start} - ${p.end}**: ${p.name}`).join('\n'));
-
+    [span_7](start_span)const embed = new EmbedBuilder().setColor(0x00FF00).setTitle(`📅 10J Timetable (IST)`[span_7](end_span)).setDescription(daySchedule.map(p => `**${p.start} - ${p.end}**: ${p.name}`).join('\n'));
     message.reply({ embeds: [embed] });
   }
 
   if (command === '/period') {
     const current = getISTNow();
-    if (!current) return message.reply("No active period right now.");
-    message.reply(`📍 **Current Period:** ${current.name}\n⏰ **IST Time:** ${current.start} - ${current.end}`);
+    if (!current) return message.reply("No active class.");
+    message.reply(`📍 **Period:** ${current.name}\n⏰ **IST:** ${current.start} - ${current.end}`);
   }
 
-  // Teacher & Proxy commands as previously defined
   if (command === '/teacher') {
     const current = getISTNow();
     const name = args.slice(1).join(' ');
-    if (!current || !name) return message.reply("Use during a class: `/teacher [Name]`");
+    if (!current || !name) return message.reply("Usage: `/teacher [Name]`");
     sessionData.teachers[`${current.dayNum}-${current.name}`] = name;
     message.reply(`✅ Marked **${name}** for ${current.name}.`);
   }
 
   if (command === '/proxy') {
     const current = getISTNow();
-    if (!current) return message.reply("No class to mark as proxy.");
+    if (!current) return message.reply("No class active.");
     sessionData.proxies.add(`${current.dayNum}-${current.name}`);
-    message.reply(`⚠️ Current ${current.name} marked as **PROXY**.`);
+    message.reply(`⚠️ ${current.name} marked as **PROXY**.`);
   }
 });
 
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('Online'); });
 server.listen(process.env.PORT || 10000, '0.0.0.0');
-
 client.login(process.env.DISCORD_TOKEN);
