@@ -2,4 +2,9 @@
 builder = "nixpacks"
 
 [build.nixpacks]
+# This forces Railway to install both Node and Python environments
 installCmds = ["npm install", "pip install -r requirements.txt"]
+
+[deploy]
+startCommand = "node bot.js"
+restartPolicyType = "on_failure"
