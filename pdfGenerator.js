@@ -1,19 +1,25 @@
-const { execSync } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
-const fs = require('fs');
 
-async function generateNotesPDF({ subject, time, date, notesMarkdown, pdfPath }) {
-  const tmpMd = pdfPath.replace('.pdf', '_content.txt');
-  fs.writeFileSync(tmpMd, notesMarkdown, 'utf8');
-  
-  const scriptPath = path.join(__dirname, 'make_pdf.py');
-  
-  // Use 'python3' specifically
-  execSync(`python3 "${scriptPath}" "${subject}" "${time}" "${date}" "${tmpMd}" "${pdfPath}"`, {
-    timeout: 30000,
+function generateNotesPDF({ subject, time, date, notesMarkdown, pdfPath }) {
+  return new Promise((resolve, reject) => {
+    const pythonProcess = spawn('python3', [
+      path.join(__dirname, 'make_pdf.py'),
+      subject,
+      time,
+      date,
+      notesMarkdown,
+      pdfPath
+    ]);
+
+    let errorOutput = "";
+    pythonProcess.stderr.on('data', (data) => { errorOutput += data.toString(); });
+
+    pythonProcess.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Python Error (Code ${code}): ${errorOutput.slice(0, 50)}`));
+    });
   });
-
-  if (fs.existsSync(tmpMd)) fs.unlinkSync(tmpMd);
 }
 
 module.exports = { generateNotesPDF };
