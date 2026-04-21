@@ -20,9 +20,8 @@ const aai = new AssemblyAI({ apiKey: process.env.ASSEMBLYAI_API_KEY });
 
 let sessionData = { teachers: {}, proxies: new Set() };
 
-[span_4](start_span)[span_5](start_span)// Exact Timetable from PDF (All times IST)[span_4](end_span)[span_5](end_span)
 const TIMETABLE = {
-  [span_6](start_span)1: [ // Monday[span_6](end_span)
+  1: [ // Monday
     { name: 'Zero Period', start: '09:25', end: '09:40' },
     { name: 'IT', start: '09:40', end: '10:20' },
     { name: 'SST', start: '10:25', end: '11:05' },
@@ -32,7 +31,7 @@ const TIMETABLE = {
     { name: 'Islamic/M.Sc', start: '13:35', end: '14:15' },
     { name: '2nd Language', start: '14:20', end: '15:00' }
   ],
-  [span_7](start_span)2: [ // Tuesday[span_7](end_span)
+  2: [ // Tuesday
     { name: 'Zero Period', start: '09:25', end: '09:40' },
     { name: 'SST', start: '09:40', end: '10:20' },
     { name: '2nd Language', start: '10:25', end: '11:05' },
@@ -42,7 +41,7 @@ const TIMETABLE = {
     { name: 'SST', start: '13:35', end: '14:15' },
     { name: 'Math', start: '14:20', end: '15:00' }
   ],
-  [span_8](start_span)3: [ // Wednesday[span_8](end_span)
+  3: [ // Wednesday
     { name: 'Zero Period', start: '09:25', end: '09:40' },
     { name: 'Math', start: '09:40', end: '10:20' },
     { name: 'Islamic/M.Sc', start: '10:25', end: '11:05' },
@@ -52,7 +51,7 @@ const TIMETABLE = {
     { name: 'Reading', start: '13:35', end: '14:15' },
     { name: 'Physics', start: '14:20', end: '15:00' }
   ],
-  [span_9](start_span)4: [ // Thursday[span_9](end_span)
+  4: [ // Thursday
     { name: 'Zero Period', start: '09:25', end: '09:40' },
     { name: 'SST', start: '09:40', end: '10:20' },
     { name: 'Chemistry', start: '10:25', end: '11:05' },
@@ -62,7 +61,7 @@ const TIMETABLE = {
     { name: 'English', start: '13:35', end: '14:15' },
     { name: 'HPE', start: '14:20', end: '15:00' }
   ],
-  [span_10](start_span)5: [ // Friday[span_10](end_span)
+  5: [ // Friday
     { name: 'English', start: '09:30', end: '10:00' },
     { name: 'Physics', start: '10:00', end: '10:30' },
     { name: 'Math', start: '10:30', end: '11:00' },
@@ -73,16 +72,18 @@ const TIMETABLE = {
   ]
 };
 
-[span_11](start_span)// Helper: Get Current IST time[span_11](end_span)
 function getISTNow() {
   const istTime = new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"});
   const now = new Date(istTime);
   const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   const day = now.getDay();
   if (!TIMETABLE[day]) return null;
-  const period = TIMETABLE[day].find(p => currentTime >= p.start && currentTime <= p.end);
-  return period ? { ...period, dayNum: day } : null;
+  return TIMETABLE[day].find(p => currentTime >= p.start && currentTime <= p.end) || null;
 }
+
+client.once(Events.ClientReady, (c) => {
+  console.log(`✅ Logged in as ${c.user.tag}`);
+});
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
@@ -92,20 +93,14 @@ client.on(Events.MessageCreate, async (message) => {
   const audio = message.attachments.find(a => /\.(mp3|wav|m4a)$/i.test(a.name));
   if (audio) {
     const current = getISTNow();
-    const periodKey = current ? `${current.dayNum}-${current.name}` : null;
-    const teacher = sessionData.teachers[periodKey] || "Unknown";
-    const proxyTag = sessionData.proxies.has(periodKey) ? " (PROXY)" : "";
-    const subjectLabel = current ? `${current.name} with ${teacher}${proxyTag}` : "General Notes";
-
+    const subjectLabel = current ? current.name : "General Notes";
     const statusMsg = await message.reply(`🎙️ **Processing ${subjectLabel}...**`);
 
     try {
       const response = await axios.get(audio.url, { responseType: 'arraybuffer' });
-      const audioBuffer = Buffer.from(response.data);
-
       const transcript = await aai.transcripts.transcribe({ 
-        audio: audioBuffer,
-        speech_models: ["universal-3-pro"] // FIXED MODEL ERROR
+        audio: Buffer.from(response.data),
+        speech_models: ["universal-3-pro"] // FIXED MODEL KEY
       });
       
       if (transcript.status === 'error') throw new Error(transcript.error);
@@ -119,50 +114,24 @@ client.on(Events.MessageCreate, async (message) => {
         pdfPath
       });
 
-      await message.reply({ 
-        content: `✅ **Notes for ${subjectLabel} Ready!**`, 
-        files: [new AttachmentBuilder(pdfPath)] 
-      });
-
-      if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
+      await message.reply({ files: [new AttachmentBuilder(pdfPath)] });
+      fs.unlinkSync(pdfPath);
       await statusMsg.delete();
     } catch (err) {
       await statusMsg.edit(`❌ **Error:** \`${err.message}\``);
     }
   }
 
-  // COMMANDS
+  // Basic command check
   if (command === '/timetable') {
-    const istNow = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
-    const day = istNow.getDay();
+    const day = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"})).getDay();
     const daySchedule = TIMETABLE[day];
     if (!daySchedule) return message.reply("No classes today!");
     const embed = new EmbedBuilder().setColor(0x00FF00).setTitle(`📅 10J Timetable (IST)`).setDescription(daySchedule.map(p => `**${p.start} - ${p.end}**: ${p.name}`).join('\n'));
     message.reply({ embeds: [embed] });
   }
-
-  if (command === '/period') {
-    const current = getISTNow();
-    if (!current) return message.reply("No active period.");
-    message.reply(`📍 **Period:** ${current.name}\n⏰ **IST:** ${current.start} - ${current.end}`);
-  }
-
-  if (command === '/teacher') {
-    const current = getISTNow();
-    const name = args.slice(1).join(' ');
-    if (!current || !name) return message.reply("Usage: `/teacher [Name]`");
-    sessionData.teachers[`${current.dayNum}-${current.name}`] = name;
-    message.reply(`✅ Marked **${name}** for ${current.name}.`);
-  }
-
-  if (command === '/proxy') {
-    const current = getISTNow();
-    if (!current) return message.reply("No class active.");
-    sessionData.proxies.add(`${current.dayNum}-${current.name}`);
-    message.reply(`⚠️ ${current.name} marked as **PROXY**.`);
-  }
 });
 
-const server = http.createServer((req, res) => { res.writeHead(200); res.end('Online'); });
-server.listen(process.env.PORT || 10000, '0.0.0.0');
+// Vital for Render
+http.createServer((req, res) => { res.writeHead(200); res.end('Running'); }).listen(process.env.PORT || 10000);
 client.login(process.env.DISCORD_TOKEN);
