@@ -1,7 +1,7 @@
 # Use a slim version of Node
 FROM node:18-slim
 
-# Install Python and Pip (needed for your PDF generator)
+# Install Python and Pip
 RUN apt-get update && apt-get install -y python3 python3-pip
 
 # Create app directory
@@ -13,7 +13,8 @@ RUN npm install
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt ./
-RUN pip3 install --no-cache-dir -r requirements.txt
+# THE FIX IS ON THE LINE BELOW:
+RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
 
 # Copy the rest of your code
 COPY . .
