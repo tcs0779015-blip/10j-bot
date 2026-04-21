@@ -1,23 +1,24 @@
-# Use a slim version of Node
 FROM node:18-slim
 
-# Install Python and Pip
-RUN apt-get update && apt-get install -y python3 python3-pip
+# Install Python and font dependencies for PDF generation
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
+# Install Python packages (reportlab and markdown2)
+RUN pip3 install reportlab markdown2 --break-system-packages
+
 WORKDIR /usr/src/app
 
-# Copy package files and install Node dependencies
 COPY package*.json ./
 RUN npm install
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt ./
-# THE FIX IS ON THE LINE BELOW:
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
-
-# Copy the rest of your code
 COPY . .
 
-# Start the bot
-CMD [ "node", "bot.js" ]
+# Expose port for Render
+ENV PORT=10000
+EXPOSE 10000
+
+CMD ["node", "bot.js"]
