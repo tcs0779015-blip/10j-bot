@@ -1,0 +1,5 @@
+[build]
+builder = "nixpacks"
+
+[build.nixpacks]
+installCmds = ["npm install", "pip install -r requirements.txt"]
